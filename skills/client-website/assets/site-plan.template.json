@@ -1,0 +1,69 @@
+{
+  "client": "__FILL_CLIENT__",
+  "domain": "https://__FILL_DOMAIN__.com",
+  "deploy": "static",
+  "keyword_source": "__FILL_TOOL_AND_DATE__",
+  "locales": [
+    { "key": "en", "hreflang": "en", "prefix": "", "dir": "ltr", "default": true }
+  ],
+  "house_rules": { "no_dashes": false, "no_eyebrows": false },
+  "redirects": [],
+  "pages": [
+    {
+      "route": "/",
+      "type": "home",
+      "nav": "Home",
+      "primary_keyword": "__FILL__",
+      "volume": null,
+      "difficulty": null,
+      "secondary": [],
+      "title": "__FILL__",
+      "description": "__FILL__",
+      "h1": "__FILL__"
+    },
+    {
+      "route": "/services",
+      "type": "hub",
+      "nav": "Services",
+      "title": "__FILL__",
+      "description": "__FILL__",
+      "h1": "__FILL__"
+    },
+    {
+      "route": "/services/__FILL_SLUG__",
+      "type": "service",
+      "nav": "__FILL__",
+      "primary_keyword": "__FILL__",
+      "volume": null,
+      "difficulty": null,
+      "secondary": [],
+      "title": "__FILL__",
+      "description": "__FILL__",
+      "h1": "__FILL__"
+    },
+    {
+      "route": "/about",
+      "type": "about",
+      "nav": "About",
+      "title": "__FILL__",
+      "description": "__FILL__",
+      "h1": "__FILL__"
+    },
+    {
+      "route": "/contact",
+      "type": "contact",
+      "nav": "Contact",
+      "title": "__FILL__",
+      "description": "__FILL__",
+      "h1": "__FILL__"
+    },
+    {
+      "route": "/privacy-policy",
+      "type": "legal",
+      "nav": "Privacy",
+      "title": "__FILL__",
+      "description": "__FILL__",
+      "h1": "__FILL__"
+    }
+  ]
+}

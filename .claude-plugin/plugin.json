@@ -1,0 +1,10 @@
+{
+  "name": "client-website",
+  "version": "0.1.0",
+  "description": "Build an SEO-optimised Next.js website from a client brief. One approved site plan controls the routes, titles, headings and sitemap, and a blocking script checks the built HTML against it.",
+  "author": { "name": "Aditya Pratap Singh" },
+  "homepage": "https://github.com/AdityaPratamaS18/client-website-skill",
+  "repository": "https://github.com/AdityaPratamaS18/client-website-skill",
+  "license": "MIT",
+  "keywords": ["nextjs", "seo", "website", "agency", "structured-data", "claude-code"]
+}

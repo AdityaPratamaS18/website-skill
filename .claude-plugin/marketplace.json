@@ -1,0 +1,19 @@
+{
+  "name": "client-website-skill",
+  "description": "SEO-optimised Next.js websites from client briefs.",
+  "owner": { "name": "Aditya Pratap Singh", "url": "https://github.com/AdityaPratamaS18" },
+  "plugins": [
+    {
+      "name": "client-website",
+      "source": "./",
+      "version": "0.1.0",
+      "description": "Build an SEO-optimised Next.js website from a client brief, with approval gates and blocking checks.",
+      "author": { "name": "Aditya Pratap Singh" },
+      "homepage": "https://github.com/AdityaPratamaS18/client-website-skill",
+      "repository": "https://github.com/AdityaPratamaS18/client-website-skill",
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["nextjs", "seo", "website", "agency"]
+    }
+  ]
+}
