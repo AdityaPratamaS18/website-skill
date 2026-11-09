@@ -1,4 +1,4 @@
-# Client Website
+# Website Skill
 
 A Claude Code skill that turns a client brief into an SEO-optimised Next.js website.
 
@@ -9,15 +9,15 @@ Give it a filled brief, a company profile or a proposal. Claude reads the source
 As a plugin, in Claude Code:
 
 ```text
-/plugin marketplace add AdityaPratamaS18/client-website-skill
-/plugin install client-website@client-website-skill
+/plugin marketplace add AdityaPratamaS18/website-skill
+/plugin install website-skill@website-skill
 ```
 
 Or copy the skill folder by hand:
 
 ```bash
-git clone https://github.com/AdityaPratamaS18/client-website-skill
-cp -R client-website-skill/skills/client-website ~/.claude/skills/
+git clone https://github.com/AdityaPratamaS18/website-skill
+cp -R website-skill/skills/website-skill ~/.claude/skills/
 ```
 
 You need Node.js 20 or later, Python 3 and `rsync`. A keyword tool connected to Claude Code improves the plan. Without one, the skill continues and tells you that volumes are missing.
@@ -51,8 +51,8 @@ Preview builds are blocked from search engines. Only a build with `SITE_INDEXABL
 Run it yourself at any time:
 
 ```bash
-python3 skills/client-website/scripts/site_gate.py plan path/to/site-plan.json
-python3 skills/client-website/scripts/site_gate.py build path/to/project --release
+python3 skills/website-skill/scripts/site_gate.py plan path/to/site-plan.json
+python3 skills/website-skill/scripts/site_gate.py build path/to/project --release
 ```
 
 It reads the built HTML and exits with an error if it finds any of these:

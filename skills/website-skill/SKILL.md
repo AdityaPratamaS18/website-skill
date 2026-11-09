@@ -1,5 +1,5 @@
 ---
-name: client-website
+name: website-skill
 description: >
   Build a complete SEO-optimised Next.js website for a client or a business, from a brief to a
   launch-ready build. Use whenever the user wants a new site or a full rebuild from source
@@ -12,7 +12,7 @@ description: >
   site, to write SEO articles for a site that is already live, or for WordPress work.
 ---
 
-# Client website: procedure
+# Website skill: procedure
 
 This skill makes one client website from one brief. Each client gets one approved plan, one code base and one check script. The approved plan controls the routes, the titles, the descriptions, the headings and the sitemap.
 
