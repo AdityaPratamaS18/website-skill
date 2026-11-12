@@ -6,7 +6,7 @@
     {
       "name": "website-skill",
       "source": "./",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Build an SEO-optimised Next.js website from a client brief, with approval gates and blocking checks.",
       "author": { "name": "Aditya Pratap Singh" },
       "homepage": "https://github.com/AdityaPratamaS18/website-skill",

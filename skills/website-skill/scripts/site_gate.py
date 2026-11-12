@@ -3,13 +3,21 @@
 
   site_gate.py plan <site-plan.json>
   site_gate.py build <project-dir> [--release]
+  site_gate.py live <domain> [--pages N]
+
+The live mode reads the launched site over the network: robots.txt, the
+www and apex redirects, the security headers, the cache headers, and the
+canonical and og:image of each page in the sitemap.
 
 The exit code is 1 if a check fails. Zero pages found is also a failure,
 because a check that passes on nothing is worse than no check.
 """
 import argparse
+import http.client
 import json
 import re
+import socket
+import ssl
 import sys
 import urllib.parse
 from html.parser import HTMLParser
@@ -32,6 +40,22 @@ IMAGE_FAIL_KB = 500
 IMAGE_WARN_KB = 250
 RASTER = {".webp", ".jpg", ".jpeg", ".png", ".avif", ".gif"}
 HOUSE_RULES = {"no_dashes": False, "no_eyebrows": False}
+# A module that declares one of these names hides the global in that module.
+# `export const process = [...]` in a data file broke a Next.js 16 build.
+SHADOWED_GLOBALS = (
+    "process", "Buffer", "global", "globalThis", "require", "module", "exports",
+    "console", "window", "document", "navigator", "location", "fetch", "URL",
+    "crypto", "performance", "setTimeout", "setInterval",
+)
+# An element id becomes a global in the browser. An id that is the same as the
+# global of a tracker replaces that tracker: <Script id="clarity"> stopped Clarity.
+TRACKER_GLOBALS = ("clarity", "gtag", "dataLayer", "fbq", "ttq", "lintrk", "_hsq", "hj")
+TRACKER_ID = re.compile(r"""\bid\s*=\s*\{?\s*["'`](""" + "|".join(TRACKER_GLOBALS) + r""")["'`]""")
+SHADOW = re.compile(
+    r"^\s*export\s+(?:const|let|var|function\*?|class|async\s+function)\s+("
+    + "|".join(SHADOWED_GLOBALS) + r")\b",
+    re.M,
+)
 
 
 class Report:
@@ -511,6 +535,11 @@ def check_source(root, report):
             report.fail(where, "file contains an em-dash or en-dash")
         if "__FILL" in text and file.name != "site-plan.template.json":
             report.fail(where, "file contains a __FILL value")
+        if file.suffix in {".ts", ".tsx"}:
+            for match in TRACKER_ID.finditer(text):
+                report.fail(where, f"an element has id {match.group(1)!r}, which replaces the tracker global window.{match.group(1)}")
+            for match in SHADOW.finditer(text):
+                report.fail(where, f"exports {match.group(1)!r}, which hides the global of that name. Rename it")
         is_plan = file.name == "site-plan.json"
         if HOUSE_RULES["no_eyebrows"] and not is_plan and re.search(r"eyebrow|kicker", text, re.I):
             report.fail(where, "file contains an eyebrow or kicker element")
@@ -611,6 +640,370 @@ def check_build(root, release, report):
     check_icon(root, report)
     return checked
 
+# ---------------------------------------------------------------- live mode
+
+LIVE_TIMEOUT = 20
+REDIRECT_CODES = {301, 302, 303, 307, 308}
+PERMANENT = {301, 308}
+# Crawlers that fetch a page to answer a question. A block removes the site
+# from AI answers, so it fails.
+AI_ANSWER_BOTS = ("OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "Perplexity-User",
+                  "Claude-SearchBot", "Claude-User")
+# Crawlers that collect training data. A block is a client decision, so it warns.
+AI_TRAINING_BOTS = ("GPTBot", "ClaudeBot", "CCBot", "Google-Extended", "Applebot-Extended",
+                    "Bytespider", "meta-externalagent", "Amazonbot")
+SEARCH_BOTS = ("Googlebot", "Bingbot")
+MIN_ASSET_MAX_AGE = 86400
+
+
+class Response:
+    def __init__(self, url, status, headers, body, error=""):
+        self.url = url
+        self.status = status
+        self.headers = headers
+        self.body = body
+        self.error = error
+
+    @property
+    def text(self):
+        return self.body.decode("utf-8", errors="replace")
+
+    @property
+    def location(self):
+        value = self.headers.get("location", "")
+        return urllib.parse.urljoin(self.url, value) if value else ""
+
+
+def open_socket(host, port, timeout):
+    """Connects over IPv4 first. On a network with no IPv6 route, Python
+    waits for each IPv6 address to time out before it tries IPv4."""
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    infos.sort(key=lambda info: info[0] != socket.AF_INET)
+    error = OSError(f"no address for {host}")
+    for family, kind, proto, _, address in infos:
+        sock = socket.socket(family, kind, proto)
+        sock.settimeout(min(timeout, 8))
+        try:
+            sock.connect(address)
+            sock.settimeout(timeout)
+            return sock
+        except OSError as failure:
+            error = failure
+            sock.close()
+    raise error
+
+
+class HTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = open_socket(self.host, self.port, self.timeout)
+
+
+class HTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        sock = open_socket(self.host, self.port, self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class Fetcher:
+    """Reads one URL with no automatic redirects.
+
+    connect="host:port" sends each request to that address over plain HTTP,
+    with the real Host header and the scheme in X-Forwarded-Proto. The tests
+    use it to run the live checks against a local server.
+    """
+
+    def __init__(self, connect=None):
+        self.connect = connect
+        self.cache = {}
+
+    def get(self, url, method="GET"):
+        key = (method, url)
+        if key in self.cache:
+            return self.cache[key]
+        parts = urllib.parse.urlsplit(url)
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        headers = {"Host": parts.netloc, "User-Agent": "site-gate/1.0 (live check)", "Accept": "*/*"}
+        if self.connect:
+            host, port = self.connect.rsplit(":", 1)
+            conn = http.client.HTTPConnection(host, int(port), timeout=LIVE_TIMEOUT)
+            headers["X-Forwarded-Proto"] = parts.scheme
+        elif parts.scheme == "https":
+            conn = HTTPSConnection(parts.hostname, parts.port or 443, timeout=LIVE_TIMEOUT,
+                                   context=ssl.create_default_context())
+        else:
+            conn = HTTPConnection(parts.hostname, parts.port or 80, timeout=LIVE_TIMEOUT)
+        try:
+            conn.request(method, path, headers=headers)
+            raw = conn.getresponse()
+            names = {k.lower() for k, _ in raw.getheaders()}
+            values = {n: ", ".join(raw.msg.get_all(n) or []) for n in names}
+            body = raw.read(3_000_000) if method == "GET" else b""
+            result = Response(url, raw.status, values, body)
+        except (OSError, http.client.HTTPException, ssl.SSLError, ValueError) as error:
+            result = Response(url, 0, {}, b"", str(error) or type(error).__name__)
+        finally:
+            conn.close()
+        self.cache[key] = result
+        return result
+
+    def follow(self, url, limit=6):
+        chain = []
+        for _ in range(limit):
+            response = self.get(url)
+            chain.append(response)
+            if response.status in REDIRECT_CODES and response.location:
+                url = response.location
+                continue
+            break
+        return chain
+
+
+def robots_groups(text):
+    groups, current, after_agent = [], None, False
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if ":" not in line:
+            continue
+        key, value = (s.strip() for s in line.split(":", 1))
+        key = key.lower()
+        if key == "user-agent":
+            if not after_agent:
+                current = {"agents": [], "rules": []}
+                groups.append(current)
+            current["agents"].append(value.lower())
+            after_agent = True
+            continue
+        after_agent = False
+        if current is not None and key in ("allow", "disallow"):
+            current["rules"].append((key, value))
+    return groups
+
+
+def blocks_site(group):
+    rules = group["rules"]
+    return ("disallow", "/") in rules and ("allow", "/") not in rules
+
+
+def check_robots(report, text, origin):
+    groups = robots_groups(text)
+    star = [g for g in groups if "*" in g["agents"]]
+    if len(star) > 1:
+        report.fail("robots.txt", f"has {len(star)} 'User-agent: *' groups. A crawler can read only "
+                    "the first one and lose the other rules. Join them, or turn off the Cloudflare managed robots.txt")
+    if any(blocks_site(g) for g in star):
+        report.fail("robots.txt", "'User-agent: *' has 'Disallow: /'. The site is closed to search engines")
+
+    def blocked(bot):
+        return any(bot.lower() in g["agents"] and blocks_site(g) for g in groups)
+
+    for bot in SEARCH_BOTS + AI_ANSWER_BOTS:
+        if blocked(bot):
+            report.fail("robots.txt", f"blocks {bot}. The site cannot show in its search or AI answers")
+    for bot in AI_TRAINING_BOTS:
+        if blocked(bot):
+            report.warn("robots.txt", f"blocks {bot} (AI training). Keep it only if the client decided this")
+    if re.search(r"^\s*Content-Signal\s*:", text, re.I | re.M):
+        report.warn("robots.txt", "has Content-Signal lines. The Cloudflare managed robots.txt is on")
+
+    sitemaps = re.findall(r"^\s*Sitemap\s*:\s*(\S+)", text, re.I | re.M)
+    if not sitemaps:
+        report.fail("robots.txt", "has no Sitemap line")
+    for url in sitemaps:
+        if not url.startswith(origin + "/"):
+            report.fail("robots.txt", f"Sitemap line is on another host: {url}")
+
+
+def check_hosts(report, fetcher, origin, other):
+    host = urllib.parse.urlsplit(origin).netloc
+    home = fetcher.get(origin + "/")
+    if home.status == 0:
+        report.fail(origin, f"the site does not answer: {home.error}")
+        return None
+    if home.status in REDIRECT_CODES:
+        report.fail(origin, f"redirects to {home.location}. Give the final host to the live check")
+        return None
+    if home.status != 200:
+        report.fail(origin, f"home page returns HTTP {home.status}")
+        return None
+
+    plain = fetcher.get(f"http://{host}/")
+    if plain.status not in PERMANENT or not plain.location.startswith(origin + "/"):
+        report.fail(f"http://{host}", f"must 301 to {origin}/, returns HTTP {plain.status} {plain.location}".rstrip())
+
+    probe = "/gate-redirect-check?q=1"
+    for scheme in ("https", "http"):
+        start = f"{scheme}://{other}{probe}"
+        first = fetcher.get(start)
+        where = f"{scheme}://{other}"
+        if first.status == 0:
+            report.fail(where, f"does not answer ({first.error}). Old links to this host break")
+            continue
+        if first.status not in REDIRECT_CODES:
+            report.fail(where, f"returns HTTP {first.status}, not a 301 to {origin}. Both hosts serve the site")
+            continue
+        if first.status not in PERMANENT:
+            report.fail(where, f"redirect is HTTP {first.status}. Use a permanent 301")
+        chain = fetcher.follow(start)
+        final = chain[-1].url
+        if not final.startswith(origin + "/"):
+            report.fail(where, f"redirect ends on {final}, not on {origin}")
+        elif not final.startswith(origin + "/gate-redirect-check"):
+            report.fail(where, f"redirect drops the path: {start} goes to {final}")
+        elif "q=1" not in final:
+            report.warn(where, "redirect drops the query string. Set 'Preserve query string' to on")
+        if len(chain) > 3:
+            report.warn(where, f"redirect takes {len(chain) - 1} hops")
+    return home
+
+
+def max_age(cache_control):
+    found = re.search(r"max-age=(\d+)", cache_control or "")
+    return int(found.group(1)) if found else 0
+
+
+def check_headers(report, home, origin):
+    h = home.headers
+    if h.get("x-content-type-options", "").lower() != "nosniff":
+        report.fail(origin, "header X-Content-Type-Options: nosniff is missing")
+    if not h.get("referrer-policy"):
+        report.fail(origin, "header Referrer-Policy is missing")
+    if "frame-ancestors" not in h.get("content-security-policy", "") and not h.get("x-frame-options"):
+        report.fail(origin, "header Content-Security-Policy: frame-ancestors (or X-Frame-Options) is missing")
+    if not h.get("permissions-policy"):
+        report.warn(origin, "header Permissions-Policy is missing")
+    if not h.get("strict-transport-security"):
+        report.warn(origin, "header Strict-Transport-Security is missing. Turn on HSTS at the host")
+    if "noindex" in h.get("x-robots-tag", "").lower():
+        report.fail(origin, "header X-Robots-Tag has noindex")
+
+
+def same_site(url, origin):
+    return url.startswith(origin + "/") or url == origin
+
+
+def check_assets(report, fetcher, parsed, origin):
+    checked = set()
+    candidates = [l.get("href", "") for l in parsed.links if l.get("rel") == "stylesheet"]
+    candidates += [i.get("src", "") for i in parsed.images]
+    for value in candidates:
+        if not value or value.startswith("data:"):
+            continue
+        url = urllib.parse.urljoin(origin + "/", value)
+        if not same_site(url, origin) or "/_next/image" in url:
+            continue
+        folder = urllib.parse.urlsplit(url).path.rsplit("/", 1)[0] or "/"
+        if folder in checked:
+            continue
+        checked.add(folder)
+        response = fetcher.get(url, method="HEAD")
+        if response.status != 200:
+            report.fail(url, f"asset returns HTTP {response.status}")
+            continue
+        age = max_age(response.headers.get("cache-control", ""))
+        if age < MIN_ASSET_MAX_AGE:
+            report.warn(url, f"Cache-Control max-age is {age}. Add a rule for {folder}/* to public/_headers")
+        if len(checked) >= 6:
+            break
+
+
+def sitemap_urls(report, fetcher, origin):
+    response = fetcher.get(origin + "/sitemap.xml")
+    if response.status != 200:
+        report.fail("sitemap.xml", f"returns HTTP {response.status}")
+        return []
+    namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+    try:
+        tree = ElementTree.fromstring(response.body)
+    except ElementTree.ParseError as error:
+        report.fail("sitemap.xml", f"does not parse: {error}")
+        return []
+    if tree.tag == f"{namespace}sitemapindex":
+        urls = []
+        for loc in tree.iter(f"{namespace}loc"):
+            child = fetcher.get(loc.text.strip())
+            if child.status == 200:
+                urls += [el.text.strip() for el in ElementTree.fromstring(child.body).iter(f"{namespace}loc")]
+        return urls
+    return [el.text.strip() for el in tree.iter(f"{namespace}loc")]
+
+
+def check_live_page(report, fetcher, url, origin, images):
+    response = fetcher.get(url)
+    where = urllib.parse.urlsplit(url).path or "/"
+    if response.status != 200:
+        detail = f" to {response.location}" if response.location else ""
+        report.fail(where, f"sitemap URL returns HTTP {response.status}{detail}")
+        return None
+    if "noindex" in response.headers.get("x-robots-tag", "").lower():
+        report.fail(where, "header X-Robots-Tag has noindex")
+    parsed = PageParser()
+    parsed.feed(response.text)
+    if "noindex" in parsed.meta.get("robots", "").lower():
+        report.fail(where, "page has meta robots noindex")
+    canonical = [l.get("href", "") for l in parsed.links if l.get("rel") == "canonical"]
+    if len(canonical) != 1:
+        report.fail(where, f"page has {len(canonical)} canonical links (must be 1)")
+    elif canonical[0].rstrip("/") != url.rstrip("/"):
+        report.fail(where, f"canonical is {canonical[0]}, the URL is {url}")
+    image = parsed.meta.get("og:image", "")
+    if not image:
+        report.fail(where, "og:image is missing")
+    elif not image.startswith("https://"):
+        report.fail(where, f"og:image is not an absolute https URL: {image}")
+    else:
+        if image not in images:
+            images[image] = fetcher.get(image, method="HEAD")
+        result = images[image]
+        kind = result.headers.get("content-type", "")
+        if result.status != 200 or not kind.startswith("image/"):
+            report.fail(where, f"og:image returns HTTP {result.status} {kind}".rstrip())
+    return parsed
+
+
+def normalize_origin(domain):
+    value = domain.strip().rstrip("/")
+    if "://" not in value:
+        value = "https://" + value
+    parts = urllib.parse.urlsplit(value)
+    if parts.scheme != "https" or not parts.netloc:
+        raise SystemExit("FAIL: give the domain as example.com or https://example.com")
+    return f"https://{parts.netloc.lower()}"
+
+
+def other_host(host):
+    return host[4:] if host.startswith("www.") else f"www.{host}"
+
+
+def check_live(domain, report, pages=10, connect=None):
+    origin = normalize_origin(domain)
+    host = urllib.parse.urlsplit(origin).netloc
+    fetcher = Fetcher(connect)
+
+    home = check_hosts(report, fetcher, origin, other_host(host))
+    if home is None:
+        return 0
+    check_headers(report, home, origin)
+
+    robots = fetcher.get(origin + "/robots.txt")
+    if robots.status != 200:
+        report.fail("robots.txt", f"returns HTTP {robots.status}")
+    else:
+        check_robots(report, robots.text, origin)
+
+    urls = sitemap_urls(report, fetcher, origin)
+    for url in urls:
+        if not same_site(url, origin):
+            report.fail("sitemap.xml", f"URL is on another host: {url}")
+    targets = [origin + "/"] + [u for u in urls if same_site(u, origin) and u.rstrip("/") != origin][: max(0, pages - 1)]
+    images, checked = {}, 0
+    for url in targets:
+        parsed = check_live_page(report, fetcher, url, origin, images)
+        if parsed is not None:
+            checked += 1
+            if url == origin + "/":
+                check_assets(report, fetcher, parsed, origin)
+    return checked
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -620,6 +1013,10 @@ def main():
     build_command = commands.add_parser("build")
     build_command.add_argument("project")
     build_command.add_argument("--release", action="store_true")
+    live_command = commands.add_parser("live")
+    live_command.add_argument("domain")
+    live_command.add_argument("--pages", type=int, default=10, help="pages to read from the sitemap")
+    live_command.add_argument("--connect", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     report = Report()
@@ -629,6 +1026,12 @@ def main():
         if not count and not report.fails:
             report.fail("plan", "the plan has no pages")
         return report.finish(f"{count} pages checked in the plan")
+
+    if args.command == "live":
+        count = check_live(args.domain, report, args.pages, args.connect)
+        if not count and not report.fails:
+            report.fail("live", "pages checked: 0")
+        return report.finish(f"live pages checked: {count}")
 
     count = check_build(Path(args.project).resolve(), args.release, report)
     if not count and not report.fails:

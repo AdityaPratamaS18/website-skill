@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Analytics from "@/components/Analytics";
 import JsonLd from "@/components/JsonLd";
+import WhatsAppButton from "@/components/WhatsAppButton";
 import { defaultLocale, organizationLd } from "@/lib/seo";
 import { site } from "@/lib/site";
 
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {/* Add the site header here. */}
         <main id="main">{children}</main>
         {/* Add the site footer here. */}
+        <WhatsAppButton />
         <Analytics />
       </body>
     </html>

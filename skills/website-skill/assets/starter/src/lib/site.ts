@@ -29,8 +29,22 @@ export const site = {
   areaServed: [] as string[],
   foundingDate: "",
   social: [] as string[],
+  /* Decimal degrees of the Google Maps pin. Leave null if the pin is not known. */
+  geo: { lat: null as number | null, lng: null as number | null },
+  /* The share link of the Google Maps place, such as https://maps.app.goo.gl/... */
+  mapUrl: "",
+  /* PWA manifest colors. Set them at the design step from the brand tokens. */
+  themeColor: "#ffffff",
+  backgroundColor: "#ffffff",
   gaId: "",
   clarityId: "",
+  /* Consent Mode v2 default for analytics. Use "denied" if the brief says the
+     site needs a consent banner (visitors in the EU, the UK or a market with a
+     consent law). See references/brief-intake.md. */
+  consent: { analytics: "granted" as "granted" | "denied" },
+  /* Web3Forms access key for the form of a static site. The key is public by
+     design. Leave it empty if the site has no form. */
+  web3formsKey: "",
 };
 
 export function waLink(message?: string) {

@@ -29,6 +29,9 @@ mkdir -p "$target"
 rsync -a "$work/site/" "$target/"
 rsync -a "$skill/assets/starter/" "$target/"
 cp "$skill/assets/site-plan.template.json" "$target/src/lib/site-plan.json"
+if [ "$mode" = "static" ]; then
+  cp "$skill/assets/_headers" "$target/public/_headers"
+fi
 rm -f "$target"/public/{file,globe,next,vercel,window}.svg "$target/src/app/favicon.ico"
 
 package_name="$(basename "$(cd "$target" && pwd)" | tr '[:upper:] ' '[:lower:]-')"
@@ -45,17 +48,34 @@ path = sys.argv[1]
 text = open(path).read()
 text = re.sub(r"^\s*(cacheComponents|partialPrefetching): true,\n", "", text, flags=re.M)
 text = re.sub(r"^\s*/\* config options here \*/\n", "", text, flags=re.M)
+marker = "const nextConfig: NextConfig = {\n"
+if marker not in text:
+    sys.exit("FAIL: next.config.ts has an unknown format")
 if os.environ["MODE"] == "static":
-    marker = "const nextConfig: NextConfig = {\n"
-    if marker not in text:
-        sys.exit("FAIL: next.config.ts has an unknown format")
     note = (
         "  /* A static site in out/. next/image does not resize here,\n"
-        "     so each source image must be the correct size. */\n"
+        "     so each source image must be the correct size.\n"
+        "     Security and cache headers are in public/_headers. */\n"
         '  output: "export",\n'
         "  images: { unoptimized: true },\n"
     )
     text = text.replace(marker, marker + note, 1)
+else:
+    headers = (
+        "/* Security headers for each response. A static site uses public/_headers. */\n"
+        "const securityHeaders = [\n"
+        '  { key: "X-Content-Type-Options", value: "nosniff" },\n'
+        '  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },\n'
+        '  { key: "Content-Security-Policy", value: "frame-ancestors \'self\'" },\n'
+        '  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },\n'
+        "];\n\n"
+    )
+    note = (
+        "  async headers() {\n"
+        '    return [{ source: "/:path*", headers: securityHeaders }];\n'
+        "  },\n"
+    )
+    text = text.replace(marker, headers + marker + note, 1)
 open(path, "w").write(text)
 PYEOF
 

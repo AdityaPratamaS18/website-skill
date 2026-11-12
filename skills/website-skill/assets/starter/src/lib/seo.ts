@@ -9,6 +9,8 @@ export type PagePlan = Copy & {
   type: string;
   nav: string;
   noindex?: boolean;
+  /* ISO date of the last real change to the page. The sitemap uses it. */
+  updated?: string;
   translations?: Record<string, Copy>;
 };
 
@@ -22,6 +24,7 @@ export type Locale = {
 
 export type SitePlan = {
   domain: string;
+  approved_on?: string;
   locales: Locale[];
   pages: PagePlan[];
 };
@@ -137,6 +140,11 @@ export function organizationLd() {
       postalCode: a.postalCode,
       addressCountry: a.country,
     },
+    geo:
+      site.geo.lat !== null && site.geo.lng !== null
+        ? { "@type": "GeoCoordinates", latitude: site.geo.lat, longitude: site.geo.lng }
+        : undefined,
+    hasMap: site.mapUrl,
     openingHours: site.openingHours,
     areaServed: site.areaServed,
     sameAs: site.social,

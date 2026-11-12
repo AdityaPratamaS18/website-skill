@@ -34,6 +34,16 @@ Sources: <file names and dates>
 
 ## Market
 - Target locations, languages, buyer types
+- Visitors from the EU, the UK or another market with a consent law: yes or no
+
+## Tracking and consent (decision)
+| Item | Decision | Who decided, date |
+|---|---|---|
+| Trackers (GA4, Clarity, Meta pixel) | ... | ... |
+| Consent banner | Yes or no | ... |
+| `site.consent.analytics` | `granted` or `denied` | ... |
+| AI crawlers (allow all, or block AI training) | ... | ... |
+| Form (Web3Forms, API route, or no form) | ... | ... |
 
 ## Proof
 - Certificates and approvals (with the exact name and number)
@@ -70,6 +80,20 @@ Sources: <file names and dates>
 | A claim, sector or figure | Any | Leave it out |
 
 Show the user each build default at GATE 1.
+
+## Consent decision
+
+Get this decision at GATE 1. It sets `site.consent.analytics` and the privacy page.
+
+| Visitors | Banner | `site.consent.analytics` |
+|---|---|---|
+| Only from markets with no consent law for analytics (Qatar, UAE, India, for example) | No | `granted` |
+| From the EU, the UK, or a market with an opt-in law | Yes | `denied`. The banner calls `gtag('consent','update',{analytics_storage:'granted'})` on accept |
+| Not known | Ask the user. Do not select one yourself | |
+
+NOTE: Ad storage is always `denied` in the starter, because the starter has no ad tags. If the client adds Google Ads or a Meta pixel, record a new decision.
+
+NOTE: Clarity also needs a consent signal for visitors in the EU, the UK and Switzerland. If the site has a banner, the banner must send the consent to Clarity too.
 
 ## questions-for-client.md: structure
 

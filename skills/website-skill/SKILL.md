@@ -119,6 +119,11 @@ python3 <skill-dir>/scripts/site_gate.py build <client-folder>/website
 2. Build with `SITE_INDEXABLE=1`.
 3. Run the build gate with `--release`. The gate must pass.
 4. Do the launch steps in `references/launch.md`.
+5. Run the live gate on the final host. The gate must pass. Then do the tracker check in `references/launch.md`.
+
+```bash
+python3 <skill-dir>/scripts/site_gate.py live <domain>
+```
 
 WARNING: DO NOT CONNECT THE DOMAIN OR PUSH TO PRODUCTION WITHOUT AN APPROVAL IN THE CURRENT SESSION. THE LIVE DOMAIN AFFECTS THE BUSINESS OF THE CLIENT.
 
@@ -127,6 +132,7 @@ WARNING: DO NOT CONNECT THE DOMAIN OR PUSH TO PRODUCTION WITHOUT AN APPROVAL IN 
 1. Give the user a list of the client actions that remain.
 2. Record paths, decisions and lessons in the notes for this client.
 3. Tell the user that the site is ready for SEO content work.
+4. If the gate can catch a new fault, add a check and a test with that deliberate fault to `scripts/test_site_gate.py`. Run `python3 scripts/test_site_gate.py`. All tests must pass.
 
 ## Fixed rules
 

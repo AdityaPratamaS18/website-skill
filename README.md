@@ -53,9 +53,10 @@ Run it yourself at any time:
 ```bash
 python3 skills/website-skill/scripts/site_gate.py plan path/to/site-plan.json
 python3 skills/website-skill/scripts/site_gate.py build path/to/project --release
+python3 skills/website-skill/scripts/site_gate.py live example.com
 ```
 
-It reads the built HTML and exits with an error if it finds any of these:
+The `build` mode reads the built HTML and exits with an error if it finds any of these:
 
 - A title, description or H1 that differs from the plan, or a length outside the limits
 - A duplicate primary keyword, or a keyword missing from the title
@@ -70,16 +71,35 @@ It reads the built HTML and exits with an error if it finds any of these:
 - A sitemap that does not match the plan
 - `noindex` or a blocked `robots.txt` on a release build
 - CSS that did not compile, or a missing favicon
+- A data file that exports a name such as `process` or `fetch`, which hides the global of that name
+- An element id such as `clarity` or `gtag`, which replaces the tracker of that name in the browser
+
+The `live` mode reads the launched site and fails on:
+
+- A `robots.txt` that blocks search engines or AI search crawlers, has two `User-agent: *` groups (a common result of the Cloudflare managed robots.txt) or has no sitemap line
+- A `www` or apex host that serves the site instead of a permanent redirect, or a redirect that drops the path
+- Missing security headers (`nosniff`, `Referrer-Policy`, `frame-ancestors`)
+- A sitemap page that does not return 200, is noindex, has a wrong canonical, or has no working og:image
+
+It warns on blocked AI training crawlers, missing HSTS or `Permissions-Policy`, and assets with a short cache time.
+
+Each check has a test with a deliberate fault:
+
+```bash
+python3 skills/website-skill/scripts/test_site_gate.py
+```
 
 Two extra rules are off by default. Set `house_rules` in the plan to ban em-dashes and en-dashes, or to ban eyebrow labels above headings.
 
 ## Hosting
 
-Static export on Cloudflare Pages is the default. Choose `server` hosting on Vercel if the site needs an API route, such as a contact form that sends email.
+Static export on Cloudflare Pages is the default. A static site gets a contact form through Web3Forms, so it needs no server. Choose `server` hosting on Vercel if the site needs an API route, a login or a database.
+
+The starter includes GA4 with Consent Mode v2 defaults and lead events (`click_call`, `click_whatsapp`, `click_email`, `generate_lead`), Microsoft Clarity, a WhatsApp button, a map that needs no API key, a web manifest, and security headers for both hosts.
 
 ## Status
 
-Version 0.1.0. Tested on Next.js 16.4.5 on macOS, with static and server builds and with English and Arabic routes. It has not been tested on Windows. How reliably Claude starts the skill from different wordings has not been measured.
+Version 0.2.0. Tested on Next.js 16.4.6 on macOS, with static and server builds and with English and Arabic routes. It has not been tested on Windows. How reliably Claude starts the skill from different wordings has not been measured.
 
 ## License
 
